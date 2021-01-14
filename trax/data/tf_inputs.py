@@ -31,6 +31,7 @@ import tensorflow as tf  # pylint: disable=g-explicit-tensorflow-version-import
 import tensorflow_datasets as tfds
 import tensorflow_text as tf_text
 from trax import fastmath
+from trax.data import debug_data_pipeline
 from trax.data import text_encoder
 
 # How many examples from the stream to skip at random during training.
@@ -311,13 +312,13 @@ def _train_and_eval_dataset_v1(problem_name, data_dir, train_shuffle_files,
 
 
 # Tokenization.
+@debug_data_pipeline.debug_pipeline
 def tokenize(stream,
              keys=None,
              vocab_type='subword',
              vocab_file=None,
              vocab_dir=None,
-             n_reserved_ids=0,
-             debug=False):
+             n_reserved_ids=0):
   """Tokenize examples from the stream.
 
   This function assumes that `stream` generates either strings or tuples/dicts
@@ -334,16 +335,13 @@ def tokenize(stream,
       This is common for example when reserving the 0 for padding and 1 for EOS,
       but it's only needed if these symbols are not already included (and thus
       reserved) in the vocab_file.
-    debug: boolean, If true, prints debug information every power of 2 steps.
 
   Yields:
     Examples from stream with strings at `keys` replaced by np.arrays of
     integers -- the tokenized version of these strings.
   """
   vocab = _get_vocab(vocab_type, vocab_file, vocab_dir)
-  debug_count = 0
   for example in stream:
-    debug_count += 1
     if isinstance(example, (list, tuple)):
       new_example = []
       for i, x in enumerate(example):
@@ -352,8 +350,6 @@ def tokenize(stream,
         else:
           new_example.append(x)
       output = tuple(new_example)
-      if debug and (debug_count & debug_count - 1 == 0):
-        logging.info('Tokenize Example[%d] is %r', debug_count, output)
       yield output
     elif isinstance(example, dict):
       new_example = {}
@@ -362,13 +358,9 @@ def tokenize(stream,
           new_example[k] = np.array(vocab.encode(example[k])) + n_reserved_ids
         else:
           new_example[k] = example[k]
-      if debug and (debug_count & debug_count - 1 == 0):
-        logging.info('Tokenize Example[%d] is %r', debug_count, new_example)
       yield new_example
     else:
       output = np.array(vocab.encode(example)) + n_reserved_ids
-      if debug and (debug_count & debug_count - 1 == 0):
-        logging.info('Tokenize Example[%d] is %r', debug_count, output)
       yield output
 
 
@@ -378,8 +370,7 @@ def Tokenize(  # pylint: disable=invalid-name
     vocab_type='subword',  # pylint: disable=invalid-name
     vocab_file=None,
     vocab_dir=None,
-    n_reserved_ids=0,
-    debug=False):
+    n_reserved_ids=0):
   """Returns a function that maps text to integer arrays; see `tokenize`."""
   return lambda g: tokenize(  # pylint: disable=g-long-lambda
       g,
@@ -387,8 +378,7 @@ def Tokenize(  # pylint: disable=invalid-name
       vocab_type=vocab_type,
       vocab_file=vocab_file,
       vocab_dir=vocab_dir,
-      n_reserved_ids=n_reserved_ids,
-      debug=debug)
+      n_reserved_ids=n_reserved_ids)
 
 
 def detokenize(x,
@@ -427,7 +417,7 @@ def _to_unicode(s):
   return str(s, encoding='utf-8', errors='ignore')
 
 
-def ConvertToUnicode(keys=None, debug=False):  # pylint: disable=invalid-name
+def ConvertToUnicode(keys=None):  # pylint: disable=invalid-name
   """Converts to Unicode UTF-8 elements of an example.
 
   Useful for when TFDS outputs byte arrays. All of the errors of the conversion
@@ -435,16 +425,14 @@ def ConvertToUnicode(keys=None, debug=False):  # pylint: disable=invalid-name
 
   Args:
     keys: tuple/list of example dimensions to convert.
-    debug: boolean, If true, prints debug information every power of 2 steps.
 
   Returns:
     Function converting chosen elements of an example to UTF-8.
   """
 
-  def _convert_to_unicode_str(stream, keys=None):
-    debug_count = 0
+  @debug_data_pipeline.debug_pipeline
+  def _convert_to_unicode_str(stream):
     for example in stream:
-      debug_count += 1
       if isinstance(example, (list, tuple)):
         new_example = []
         for i, x in enumerate(example):
@@ -453,8 +441,6 @@ def ConvertToUnicode(keys=None, debug=False):  # pylint: disable=invalid-name
           else:
             new_example.append(x)
         output = tuple(new_example)
-        if debug and (debug_count & debug_count - 1 == 0):
-          logging.info('Example[%d] is %r', debug_count, output)
         yield output
       elif isinstance(example, dict):
         new_example = {}
@@ -463,16 +449,12 @@ def ConvertToUnicode(keys=None, debug=False):  # pylint: disable=invalid-name
             new_example[k] = _to_unicode(example[k])
           else:
             new_example[k] = example[k]
-        if debug and (debug_count & debug_count - 1 == 0):
-          logging.info('Example[%d] is %r', debug_count, new_example)
         yield new_example
       else:
         output = _to_unicode(example)
-        if debug and (debug_count & debug_count - 1 == 0):
-          logging.info('Example[%d] is %r', debug_count, output)
         yield output
 
-  return lambda g: _convert_to_unicode_str(g, keys)
+  return _convert_to_unicode_str
 
 
 def vocab_size(vocab_type='subword',
